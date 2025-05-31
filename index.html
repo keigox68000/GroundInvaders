@@ -1,0 +1,445 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GROUND INVADERS</title>
+    <style>
+        body {
+            margin: 0;
+            background-color: #000;
+            color: #fff;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            font-family: 'Arial', sans-serif;
+            overflow: hidden;
+        }
+        #gameContainer {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        canvas {
+            border: 1px solid #333;
+            background-color: #0a0a0a;
+            display: block;
+        }
+        #gameInfo {
+            margin-top: 10px;
+            font-size: 20px;
+            text-align: center;
+        }
+        #powerGaugeContainer {
+            width: 80%;
+            max-width: 600px;
+            height: 20px;
+            background-color: #222;
+            border: 1px solid #444;
+            border-radius: 5px;
+            margin-top: 10px;
+            overflow: hidden;
+        }
+        #powerGaugeBar {
+            width: 0%;
+            height: 100%;
+            background-color: #0f0;
+            transition: width 0.05s linear;
+        }
+        #messageContainer {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background-color: rgba(0, 0, 0, 0.7);
+            padding: 20px;
+            border-radius: 10px;
+            text-align: center;
+            display: none;
+            z-index: 100;
+        }
+        #messageText {
+            font-size: 24px;
+            margin-bottom: 15px;
+        }
+        #restartButton {
+            padding: 10px 20px;
+            font-size: 18px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+        #restartButton:hover {
+            background-color: #45a049;
+        }
+    </style>
+</head>
+<body>
+    <div id="gameContainer">
+        <div id="gameInfo">
+            スコア: <span id="score">0</span> | 倒したインベーダー: <span id="invadersKilledCount">0</span>
+        </div>
+        <canvas id="gameCanvas"></canvas>
+        <div id="powerGaugeContainer">
+            <div id="powerGaugeBar"></div>
+        </div>
+    </div>
+
+    <div id="messageContainer">
+        <div id="messageText">ゲームオーバー！</div>
+        <button id="restartButton">リスタート</button>
+    </div>
+
+    <script>
+        // --- Game Setup ---
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const scoreDisplay = document.getElementById('score');
+        const invadersKilledDisplay = document.getElementById('invadersKilledCount');
+        const powerGaugeBar = document.getElementById('powerGaugeBar');
+        const messageContainer = document.getElementById('messageContainer');
+        const messageText = document.getElementById('messageText');
+        const restartButton = document.getElementById('restartButton');
+
+        let canvasWidth = Math.min(window.innerWidth * 0.9, 800);
+        let canvasHeight = Math.min(window.innerHeight * 0.6, 500);
+        canvas.width = canvasWidth;
+        canvas.height = canvasHeight;
+
+        // --- Game State Variables ---
+        let score = 0;
+        let invadersKilled = 0;
+        let gameOver = false;
+        let gameRunning = true;
+
+        // --- Player (Cannon) ---
+        const cannon = {
+            x: 50, y: canvas.height - 52, barrelLength: 45, barrelThickness: 8,
+            baseWidth: 40, baseTopWidth: 20, baseHeight: 15, angle: 0, color: '#fff',
+            minAngle: -Math.PI / 2, maxAngle: 0
+        };
+
+        // --- Power Gauge ---
+        let power = 0;
+        let maxPower = 100;
+        let powerIncrease = true;
+        let charging = false;
+        const basePowerChargeSpeed = 2.0;
+
+        // --- Projectiles ---
+        const projectiles = [];
+        const projectileRadius = 4;
+        const baseGravity = 0.28;
+
+        // --- Invaders ---
+        const invaders = [];
+        const invaderWidth = 28; const invaderHeight = 20;
+        const initialBaseInvaderSpeed = 0.8;
+        let currentBaseInvaderSpeed = initialBaseInvaderSpeed;
+        const invaderSpeedIncreaseFactor = 0.025; // 速度上昇量を増加 (0.015 -> 0.025)
+        const baseInvaderFallSpeed = 2.5;
+        let invaderSpawnInterval = 2200;
+        const minInvaderSpawnInterval = 700; // スポーン間隔の下限を少し短く (800 -> 700)
+        const invaderSpawnIntervalDecrease = 30; // スポーン間隔の減少量を増加 (20 -> 30)
+        let lastInvaderSpawn = 0;
+        let invaderAnimationTimer = 0;
+        const invaderAnimationFrameDuration = 350;
+
+        // --- UFOs ---
+        const ufos = [];
+        const ufoWidth = 40; const ufoHeight = 20;
+        const ufoSpawnTrigger = 10;
+        let nextUfoSpawnCount = ufoSpawnTrigger;
+        const ufoTypes = ['fly_by', 'dropper', 'circular_dropper'];
+        const ufoDropInvaderChance = 0.7;
+        const baseUfoSpeedX = 1.5;
+
+        // --- Horizon ---
+        let horizonY = canvas.height - 50;
+
+        // --- Mouse Control ---
+        let mouseX = canvas.width / 2;
+        let mouseY = canvas.height / 2;
+
+        // --- SVG Paths for Enemies ---
+        const invaderSVGPath1 = new Path2D( "M6 18 L10 10 L14 18 L10 16 Z M16 18 L20 10 L24 18 L20 16 Z M8 8 Q10 4 12 8 M18 8 Q20 4 22 8 M2 14 L26 14 L22 20 L6 20 Z");
+        const invaderSVGPath2 = new Path2D( "M6 12 L10 4 L14 12 L10 10 Z M16 12 L20 4 L24 12 L20 10 Z M8 8 Q10 4 12 8 M18 8 Q20 4 22 8 M2 14 L26 14 L22 20 L6 20 Z");
+        const ufoSVGPath = new Path2D("M0,10 Q20,0 40,10 L30,20 Q20,15 10,20 Z M15,10 Q20,5 25,10");
+
+        // --- Event Listeners ---
+        canvas.addEventListener('mousemove', (e) => {
+            if (!gameRunning) return;
+            const rect = canvas.getBoundingClientRect();
+            mouseX = e.clientX - rect.left; mouseY = e.clientY - rect.top;
+            const dx = mouseX - cannon.x; const dy = mouseY - cannon.y;
+            let angle = Math.atan2(dy, dx);
+            if (angle > cannon.maxAngle) { if (mouseY > cannon.y) angle = cannon.maxAngle; }
+            if (angle < cannon.minAngle) { angle = cannon.minAngle; }
+            if (mouseX < cannon.x && angle > 0) { angle = (mouseY < cannon.y) ? cannon.minAngle : cannon.maxAngle; }
+            cannon.angle = angle;
+        });
+
+        canvas.addEventListener('mousedown', (e) => {
+            if (!gameRunning || gameOver) return;
+            if (e.button === 0) { charging = true; power = 0; powerIncrease = true;}
+        });
+
+        canvas.addEventListener('mouseup', (e) => {
+            if (!gameRunning || !charging || gameOver) return;
+            if (e.button === 0) { charging = false; fireProjectile(); powerGaugeBar.style.width = `0%`;}
+        });
+
+        restartButton.addEventListener('click', () => {
+            messageContainer.style.display = 'none';
+            resetGame();
+            gameRunning = true;
+            lastTimestamp = performance.now();
+            requestAnimationFrame(gameLoop);
+        });
+
+        window.addEventListener('resize', () => {
+            canvasWidth = Math.min(window.innerWidth * 0.9, 800);
+            canvasHeight = Math.min(window.innerHeight * 0.6, 500);
+            canvas.width = canvasWidth; canvas.height = canvasHeight;
+            horizonY = canvas.height - 50; cannon.y = canvas.height - 52;
+        });
+
+        // --- Game Functions ---
+        function fireProjectile() {
+            const velocity = (power / maxPower) * 12 + 3.5;
+            projectiles.push({
+                x: cannon.x + Math.cos(cannon.angle) * cannon.barrelLength,
+                y: cannon.y + Math.sin(cannon.angle) * cannon.barrelLength,
+                dx: Math.cos(cannon.angle) * velocity,
+                dy: Math.sin(cannon.angle) * velocity,
+                radius: projectileRadius, color: '#ff0'
+            });
+            power = 0;
+        }
+
+        function spawnInvader(xPos = canvas.width, isFalling = false, fallStartY = 0) {
+            invaders.push({
+                x: xPos, y: isFalling ? fallStartY : horizonY - invaderHeight,
+                width: invaderWidth, height: invaderHeight,
+                speed: currentBaseInvaderSpeed,
+                color: '#fff', animationFrame: 0, isFalling: isFalling, targetY: horizonY - invaderHeight
+            });
+        }
+
+        function spawnUFO() {
+            const type = ufoTypes[Math.floor(Math.random() * ufoTypes.length)];
+            let ufo = {
+                x: 0, y: Math.random() * (horizonY / 2) + 50, width: ufoWidth, height: ufoHeight,
+                speedX: baseUfoSpeedX + Math.random() * 0.8,
+                speedY: 0, color: '#f0f', type: type, path: ufoSVGPath,
+                actionTimer: 0, actionComplete: false, dropCount: 0, maxDrops: Math.floor(Math.random() * 3) + 2,
+                circleCenterX: 0, circleCenterY: 0, circleRadius: 0, circleAngle: 0, circleAngleStep: 0.06,
+                circleLoops: 0, maxCircleLoops: 2 + Math.floor(Math.random() * 2)
+            };
+            if (type === 'circular_dropper') {
+                ufo.x = canvas.width / 2 + (Math.random() - 0.5) * (canvas.width / 3);
+                ufo.y = canvas.height / 3 + (Math.random() - 0.5) * (canvas.height / 4);
+                ufo.circleCenterX = ufo.x; ufo.circleCenterY = ufo.y;
+                ufo.circleRadius = 50 + Math.random() * 50; ufo.speedX = 0;
+            } else {
+                 if (Math.random() < 0.5) { ufo.x = -ufo.width; }
+                 else { ufo.x = canvas.width; ufo.speedX = -Math.abs(ufo.speedX); }
+            }
+            ufos.push(ufo);
+        }
+
+        function updatePowerGauge(deltaTime) {
+            if (charging) {
+                const currentChargeSpeed = basePowerChargeSpeed;
+                if (powerIncrease) {
+                    power += currentChargeSpeed;
+                    if (power >= maxPower) { power = maxPower; powerIncrease = false; }
+                } else {
+                    power -= currentChargeSpeed;
+                    if (power <= 0) { power = 0; powerIncrease = true; }
+                }
+                powerGaugeBar.style.width = `${(power / maxPower) * 100}%`;
+            }
+        }
+
+        function updateProjectiles(deltaTime) {
+            for (let i = projectiles.length - 1; i >= 0; i--) {
+                const p = projectiles[i];
+                const timeFactor = deltaTime / 16.67;
+                p.dy += baseGravity * timeFactor;
+                p.x += p.dx * timeFactor;
+                p.y += p.dy * timeFactor;
+                if (p.x < -p.radius || p.x > canvas.width + p.radius || p.y > canvas.height + p.radius || p.y < -p.radius * 5) {
+                    projectiles.splice(i, 1);
+                }
+            }
+        }
+
+        function updateInvaders(deltaTime) {
+            invaderAnimationTimer += deltaTime;
+            let animateThisFrame = false;
+            if (invaderAnimationTimer >= invaderAnimationFrameDuration) {
+                animateThisFrame = true;
+                invaderAnimationTimer %= invaderAnimationFrameDuration;
+            }
+
+            for (let i = invaders.length - 1; i >= 0; i--) {
+                const inv = invaders[i];
+                const timeFactor = deltaTime / 16.67;
+                const currentInvaderMoveSpeed = inv.speed * timeFactor;
+                const currentFallSpeed = baseInvaderFallSpeed * timeFactor;
+
+                if (inv.isFalling) {
+                    inv.y += currentFallSpeed;
+                    if (inv.y >= inv.targetY) { inv.y = inv.targetY; inv.isFalling = false; }
+                } else {
+                    inv.x -= currentInvaderMoveSpeed;
+                }
+                if (animateThisFrame) { inv.animationFrame = (inv.animationFrame + 1) % 2; }
+                if (!inv.isFalling && inv.x + inv.width < cannon.x - 20) { triggerGameOver("インベーダーが防衛ラインを突破！"); return; }
+                if (!inv.isFalling && inv.x + inv.width < 0) { invaders.splice(i, 1); }
+            }
+        }
+
+        function updateUFOs(deltaTime) {
+            for (let i = ufos.length - 1; i >= 0; i--) {
+                const ufo = ufos[i];
+                const timeFactor = deltaTime / 16.67;
+                ufo.actionTimer += deltaTime;
+
+                const currentUfoSpeedX = ufo.speedX * timeFactor;
+
+                switch (ufo.type) {
+                    case 'fly_by':
+                        ufo.x += currentUfoSpeedX;
+                        if ((ufo.speedX > 0 && ufo.x > canvas.width + ufo.width) || (ufo.speedX < 0 && ufo.x + ufo.width < -ufo.width)) {
+                            ufos.splice(i, 1);
+                        }
+                        break;
+                    case 'dropper':
+                        ufo.x += currentUfoSpeedX;
+                        if (!ufo.actionComplete && Math.abs(ufo.x - canvas.width / 2) < ufo.width && ufo.actionTimer > 1000 ) {
+                             if (Math.random() < ufoDropInvaderChance) {
+                                spawnInvader(ufo.x + ufo.width / 2 - invaderWidth / 2, true, ufo.y + ufo.height);
+                            }
+                            ufo.actionComplete = true;
+                        }
+                        if ((ufo.speedX > 0 && ufo.x > canvas.width + ufo.width) || (ufo.speedX < 0 && ufo.x + ufo.width < -ufo.width)) {
+                            ufos.splice(i, 1);
+                        }
+                        break;
+                    case 'circular_dropper':
+                        if (!ufo.actionComplete) {
+                            const angleStep = ufo.circleAngleStep * timeFactor;
+                            ufo.x = ufo.circleCenterX + Math.cos(ufo.circleAngle) * ufo.circleRadius;
+                            ufo.y = ufo.circleCenterY + Math.sin(ufo.circleAngle) * ufo.circleRadius;
+                            ufo.circleAngle += angleStep;
+                            if (ufo.circleAngle > Math.PI * 2) { ufo.circleAngle -= Math.PI * 2; ufo.circleLoops++; }
+
+                            if (ufo.dropCount < ufo.maxDrops && ufo.actionTimer > 600 && (ufo.actionTimer % 1200) < 30 ) {
+                                spawnInvader(ufo.x + ufo.width / 2 - invaderWidth / 2, true, ufo.y + ufo.height);
+                                ufo.dropCount++;
+                            }
+                            if (ufo.circleLoops >= ufo.maxCircleLoops && ufo.dropCount >= ufo.maxDrops) {
+                                ufo.actionComplete = true;
+                                ufo.speedX = (ufo.x < canvas.width / 2) ? -baseUfoSpeedX : baseUfoSpeedX;
+                            }
+                        } else {
+                            ufo.x += ufo.speedX * timeFactor;
+                            if (ufo.x > canvas.width + ufo.width || ufo.x + ufo.width < 0) { ufos.splice(i, 1); }
+                        }
+                        break;
+                }
+            }
+        }
+
+        function checkCollisions() {
+            for (let i = projectiles.length - 1; i >= 0; i--) {
+                const p = projectiles[i];
+                for (let j = invaders.length - 1; j >= 0; j--) {
+                    const inv = invaders[j];
+                    if (!inv.isFalling &&
+                        p.x + p.radius > inv.x && p.x - p.radius < inv.x + inv.width &&
+                        p.y + p.radius > inv.y && p.y - p.radius < inv.y + inv.height) {
+                        projectiles.splice(i, 1); invaders.splice(j, 1); score += 10;
+                        invadersKilled++;
+                        currentBaseInvaderSpeed += invaderSpeedIncreaseFactor;
+                        invaderSpawnInterval = Math.max(minInvaderSpawnInterval, invaderSpawnInterval - invaderSpawnIntervalDecrease);
+                        break;
+                    }
+                }
+            }
+            for (let i = projectiles.length - 1; i >= 0; i--) {
+                if (!projectiles[i]) continue; const p = projectiles[i];
+                for (let j = ufos.length - 1; j >= 0; j--) {
+                    const ufo = ufos[j];
+                     if (p.x + p.radius > ufo.x && p.x - p.radius < ufo.x + ufo.width && p.y + p.radius > ufo.y && p.y - p.radius < ufo.y + ufo.height) {
+                        projectiles.splice(i, 1); ufos.splice(j, 1); score += 50; break;
+                    }
+                }
+            }
+        }
+
+        function updateGameInfo() { scoreDisplay.textContent = score; invadersKilledDisplay.textContent = invadersKilled; }
+        function triggerGameOver(reason) { gameOver = true; gameRunning = false; messageText.textContent = reason + ` 最終スコア: ${score}`; messageContainer.style.display = 'flex';}
+        function resetGame() {
+            score = 0; invadersKilled = 0; gameOver = false;
+            projectiles.length = 0; invaders.length = 0; ufos.length = 0;
+            currentBaseInvaderSpeed = initialBaseInvaderSpeed;
+            invaderSpawnInterval = 2200;
+            lastInvaderSpawn = performance.now();
+            nextUfoSpawnCount = ufoSpawnTrigger; power = 0; charging = false;
+            powerGaugeBar.style.width = '0%'; updateGameInfo(); invaderAnimationTimer = 0;
+        }
+
+        function drawCannon() { ctx.save(); ctx.translate(cannon.x, cannon.y); ctx.fillStyle = cannon.color; ctx.strokeStyle = cannon.color; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(-cannon.baseTopWidth / 2 - 5, cannon.baseHeight); ctx.lineTo(-cannon.baseTopWidth / 2, 0); ctx.lineTo(cannon.baseTopWidth / 2, 0); ctx.lineTo(cannon.baseTopWidth / 2 + 5, cannon.baseHeight); ctx.closePath(); ctx.fill(); ctx.rotate(cannon.angle); ctx.beginPath(); ctx.moveTo(0, -cannon.barrelThickness / 2); ctx.lineTo(cannon.barrelLength, -cannon.barrelThickness / 4); ctx.lineTo(cannon.barrelLength, cannon.barrelThickness / 4); ctx.lineTo(0, cannon.barrelThickness / 2); ctx.closePath(); ctx.fill(); ctx.restore(); }
+        function drawProjectiles() { projectiles.forEach(p => { ctx.beginPath(); ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2); ctx.fillStyle = p.color; ctx.fill(); });}
+        function drawInvaders() { invaders.forEach(inv => { ctx.save(); ctx.translate(inv.x, inv.y); ctx.fillStyle = inv.color; ctx.strokeStyle = inv.color; ctx.lineWidth = 1.5; const currentPath = inv.animationFrame === 0 ? invaderSVGPath1 : invaderSVGPath2; ctx.fill(currentPath); ctx.stroke(currentPath); ctx.restore(); }); }
+        function drawUFOs() { ufos.forEach(ufo => { ctx.save(); ctx.translate(ufo.x, ufo.y); ctx.fillStyle = ufo.color; ctx.fill(ufo.path); ctx.strokeStyle = '#fff'; ctx.lineWidth = 1; ctx.stroke(ufo.path); ctx.restore(); });}
+        function drawHorizon() { ctx.beginPath(); ctx.moveTo(0, horizonY); ctx.lineTo(canvas.width, horizonY); ctx.strokeStyle = '#ccc'; ctx.lineWidth = 2; ctx.stroke();}
+
+        let lastTimestamp = 0;
+        function gameLoop(timestamp) {
+            if (!gameRunning) return;
+
+            if (!lastTimestamp) {
+                lastTimestamp = timestamp;
+            }
+            const deltaTime = timestamp - lastTimestamp;
+            lastTimestamp = timestamp;
+
+            if (gameOver) { return; }
+            ctx.fillStyle = '#0a0a0a'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            updatePowerGauge(deltaTime);
+            updateProjectiles(deltaTime);
+            updateInvaders(deltaTime);
+            if (gameOver) return;
+            updateUFOs(deltaTime);
+
+            if ( (timestamp - lastInvaderSpawn) > invaderSpawnInterval ) {
+                spawnInvader(canvas.width, false, 0);
+                lastInvaderSpawn = timestamp;
+            }
+            if (invadersKilled >= nextUfoSpawnCount) {
+                spawnUFO();
+                nextUfoSpawnCount += ufoSpawnTrigger;
+            }
+            checkCollisions();
+
+            drawHorizon(); drawCannon(); drawProjectiles(); drawInvaders(); drawUFOs(); updateGameInfo();
+            requestAnimationFrame(gameLoop);
+        }
+
+        // --- Initialize and Start Game ---
+        resetGame();
+        lastTimestamp = performance.now();
+        requestAnimationFrame(gameLoop);
+
+    </script>
+</body>
+</html>
