@@ -58,24 +58,6 @@
             transition: width 0.05s linear;
             border-radius: 3px;
         }
-        #messageContainer {
-            position: absolute;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            background-color: rgba(20, 20, 20, 0.9); /* 半透明の背景 */
-            padding: 25px 30px;
-            border-radius: 10px;
-            text-align: center;
-            display: none;
-            z-index: 100;
-            border: 1px solid #555;
-            box-shadow: 0 0 15px rgba(255, 255, 255, 0.1);
-        }
-        #messageText {
-            font-size: clamp(20px, 3vw, 24px);
-            margin-bottom: 20px;
-        }
         #loadingMessage {
             font-size: 20px;
             color: #fff;
@@ -84,36 +66,18 @@
             left: 50%;
             transform: translate(-50%, -50%);
         }
-        #restartButton {
-            padding: 12px 25px;
-            font-size: clamp(16px, 2.5vw, 18px);
-            background-color: #4CAF50; /* 緑 */
-            color: white;
-            border: none;
-            border-radius: 8px;
-            cursor: pointer;
-            transition: background-color 0.3s ease;
-        }
-        #restartButton:hover {
-            background-color: #45a049; /* 少し暗い緑 */
-        }
     </style>
 </head>
 <body>
     <div id="loadingMessage">読み込み中...</div>
     <div id="gameContainer" style="display: none;">
         <div id="gameInfo">
-            スコア: <span id="score">0</span> | 倒したインベーダー: <span id="invadersKilledCount">0</span>
+            スコア: <span id="score">0</span> | 倒したインベーダー: <span id="invadersKilledCount">0</span> | 最大弾数: <span id="maxProjectilesDisplay">1</span>
         </div>
         <canvas id="gameCanvas"></canvas>
         <div id="powerGaugeContainer">
             <div id="powerGaugeBar"></div>
         </div>
-    </div>
-
-    <div id="messageContainer">
-        <div id="messageText">ゲームオーバー！</div>
-        <button id="restartButton">リスタート</button>
     </div>
 
     <script>
@@ -122,10 +86,8 @@
         const ctx = canvas.getContext('2d');
         const scoreDisplay = document.getElementById('score');
         const invadersKilledDisplay = document.getElementById('invadersKilledCount');
+        const maxProjectilesDisplay = document.getElementById('maxProjectilesDisplay');
         const powerGaugeBar = document.getElementById('powerGaugeBar');
-        const messageContainer = document.getElementById('messageContainer');
-        const messageTextElement = document.getElementById('messageText');
-        const restartButton = document.getElementById('restartButton');
         const loadingMessage = document.getElementById('loadingMessage');
         const gameContainer = document.getElementById('gameContainer');
 
@@ -156,7 +118,7 @@
                 if (imagesLoaded === totalImages) {
                     if (allImagesSuccessfullyLoaded) {
                         loadingMessage.style.display = 'none';
-                        gameContainer.style.display = 'flex';
+                        gameContainer.style.display = 'flex'; 
                         initializeGameAndStartLoop();
                     } else {
                         loadingMessage.textContent = '画像の読み込みに一部失敗しました。リロードしてください。';
@@ -178,13 +140,32 @@
         for (const key in imageUrls) {
             loadImage(key, imageUrls[key]);
         }
+        
+        // --- Explosions ---
+        // NOTE: explosionDuration is defined here, before it's potentially used by CANNON_EXPLOSION_DURATION logic
+        const explosions = []; 
+        let explosionDisplayWidth = 0; let explosionDisplayHeight = 0;
+        const explosionDuration = 300; // Used for general explosions and cannon explosion
+        const explosionFrameCount = 3;
+        const explosionFrameDuration = explosionDuration / explosionFrameCount;
+
 
         // --- Game State Variables ---
         let score = 0;
         let invadersKilled = 0;
-        let gameOver = false;
-        let gameRunning = false;
+        let gameOver = false; 
+        let gameRunning = false; 
         let lastTimestamp = 0;
+        let gameState = 'demo'; 
+        let demoUfos = [];
+        const NUM_DEMO_UFOS = 5;
+        let startMessageTimer = 0;
+        const START_MESSAGE_DURATION = 1500; 
+        let gameOverDisplayTimer = 0; 
+        const GAME_OVER_MESSAGE_DURATION = 3000; 
+        let cannonExplosionTimer = 0;
+        // const CANNON_EXPLOSION_DURATION = explosionDuration; // REMOVED - Use explosionDuration directly
+
 
         // --- Player (Cannon) ---
         const cannon = {
@@ -193,7 +174,8 @@
             barrelPivotX: 0, barrelPivotY: -5,
             angle: -45 * Math.PI / 180, 
             minAngle: -80 * Math.PI / 180, 
-            maxAngle: -30 * Math.PI / 180  
+            maxAngle: -30 * Math.PI / 180,
+            visible: true 
         };
 
         // --- Power Gauge ---
@@ -207,7 +189,9 @@
         const projectiles = [];
         const projectileRadius = 5;
         const baseGravity = 320; 
-        const MAX_PROJECTILES = 1; 
+        const BASE_MAX_PROJECTILES = 1; 
+        let currentMaxProjectiles = BASE_MAX_PROJECTILES;
+        const PROJECTILE_ARMING_DELAY = 0.20; 
 
         // --- Invaders ---
         const invaders = [];
@@ -217,17 +201,17 @@
         const invaderSpeedIncreaseFactor = 1.025; 
         const invaderIndividualSpeedVariation = 0.4; 
         const baseInvaderFallSpeed = 120; 
-        let baseInvaderSpawnInterval = 2200; // Further decreased base interval for higher frequency
+        let baseInvaderSpawnInterval = 2200; 
         let currentInvaderSpawnInterval = baseInvaderSpawnInterval; 
-        const invaderSpawnIntervalRandomness = 600; // Adjusted randomness
-        const minInvaderSpawnInterval = 800; // Further decreased minimum interval
-        const invaderSpawnIntervalDecrease = 80; // Increased decrease amount for faster ramp-up
+        const invaderSpawnIntervalRandomness = 600; 
+        const minInvaderSpawnInterval = 800; 
+        const invaderSpawnIntervalDecrease = 80; 
         let lastInvaderSpawnTime = 0;
         let invaderAnimationTimer = 0;
         const invaderAnimationFrameDuration = 350; 
 
-        // --- UFOs ---
-        const ufos = [];
+        // --- UFOs (In-Game) ---
+        const ufos = []; 
         let ufoDisplayWidth = 0; let ufoDisplayHeight = 0;
         const ufoSpawnTrigger = 5; 
         let nextUfoSpawnCount = ufoSpawnTrigger;
@@ -240,13 +224,6 @@
         // --- Score Popups ---
         const scorePopups = [];
 
-        // --- Explosions ---
-        const explosions = [];
-        let explosionDisplayWidth = 0; let explosionDisplayHeight = 0;
-        const explosionDuration = 300;
-        const explosionFrameCount = 3;
-        const explosionFrameDuration = explosionDuration / explosionFrameCount;
-
         // --- Horizon ---
         let horizonY = 0;
 
@@ -256,7 +233,7 @@
 
         // --- Event Listeners ---
         canvas.addEventListener('mousemove', (e) => {
-            if (!gameRunning || gameOver) return;
+            if (gameState !== 'playing' || gameOver) return; 
             const rect = canvas.getBoundingClientRect();
             mouseX = e.clientX - rect.left;
             mouseY = e.clientY - rect.top;
@@ -275,32 +252,31 @@
         });
 
         canvas.addEventListener('mousedown', (e) => {
-            if (!gameRunning || gameOver) return;
-            if (e.button === 0) {
-                charging = true;
-                power = 0;
-                powerIncrease = true;
+            if (gameState === 'demo') {
+                gameState = 'starting';
+                startMessageTimer = START_MESSAGE_DURATION;
+                demoUfos = []; 
+            } else if (gameState === 'playing' && !gameOver) {
+                if (e.button === 0) {
+                    charging = true;
+                    power = 0;
+                    powerIncrease = true;
+                }
             }
         });
 
         canvas.addEventListener('mouseup', (e) => {
-            if (!gameRunning || !charging || gameOver) return;
-            if (e.button === 0) {
-                charging = false;
-                fireProjectile();
-                powerGaugeBar.style.width = `0%`;
-                power = 0;
+            if (gameState === 'playing' && !charging && !gameOver) return; 
+            if (gameState === 'playing' && charging && !gameOver) { 
+                 if (e.button === 0) {
+                    charging = false;
+                    fireProjectile();
+                    powerGaugeBar.style.width = `0%`;
+                    power = 0;
+                }
             }
         });
 
-        restartButton.addEventListener('click', () => {
-            messageContainer.style.display = 'none';
-            resetGame();
-            gameRunning = true;
-            gameOver = false;
-            lastTimestamp = performance.now();
-            requestAnimationFrame(gameLoop);
-        });
 
         window.addEventListener('resize', () => {
             canvasWidth = Math.min(window.innerWidth * 0.9, 800);
@@ -308,6 +284,9 @@
             canvas.width = canvasWidth;
             canvas.height = canvasHeight;
             setHorizonAndCannonY();
+            if (gameState === 'demo') { 
+                initializeDemoUFOs();
+            }
         });
 
         function setHorizonAndCannonY() {
@@ -318,7 +297,7 @@
                 cannon.bodyWidth = 40; cannon.bodyHeight = 20;
             }
             cannon.y = canvas.height - cannon.bodyHeight - 5;
-            horizonY = cannon.y + cannon.bodyHeight + 1; 
+            horizonY = cannon.y + cannon.bodyHeight + 3; 
         }
 
         function initializeImageDependentVariables() {
@@ -345,7 +324,7 @@
 
         // --- Game Functions ---
         function fireProjectile() {
-            if (projectiles.length >= MAX_PROJECTILES) {
+            if (projectiles.length >= currentMaxProjectiles) { 
                 return;
             }
             
@@ -371,7 +350,8 @@
                 x: barrelTipX, y: barrelTipY,
                 dx: Math.cos(cannon.angle) * initialVelocity,
                 dy: Math.sin(cannon.angle) * initialVelocity,
-                radius: projectileRadius, color: '#ffff00'
+                radius: projectileRadius, color: '#ffff00',
+                armingTimer: PROJECTILE_ARMING_DELAY 
             });
         }
 
@@ -389,7 +369,7 @@
             });
         }
 
-        function spawnUFO() {
+        function spawnGameUFO() { 
             const ufoType = ufoTypes[Math.floor(Math.random() * ufoTypes.length)];
             const startsFromRight = Math.random() < 0.5;
             const ufoY = Math.random() * (canvas.height * 0.25) + ufoDisplayHeight * 0.5;
@@ -415,8 +395,36 @@
                 ufo.pathDuration = 5000 + Math.random() * 3000;
                 ufo.pathTimer = 0;
             }
-            ufos.push(ufo);
+            ufos.push(ufo); 
         }
+        
+        function initializeDemoUFOs() {
+            demoUfos = [];
+            if (!images.ufo || images.ufo.failed || ufoDisplayWidth === 0) return; 
+            for (let i = 0; i < NUM_DEMO_UFOS; i++) {
+                demoUfos.push({
+                    x: Math.random() * canvas.width,
+                    y: Math.random() * (canvas.height * 0.6), 
+                    width: ufoDisplayWidth,
+                    height: ufoDisplayHeight,
+                    speedX: (Math.random() < 0.5 ? 1 : -1) * (ufoBaseSpeedX * 0.5 + Math.random() * ufoBaseSpeedX * 0.5), 
+                    speedY: (Math.random() < 0.5 ? 1 : -1) * (ufoBaseSpeedX * 0.2 + Math.random() * ufoBaseSpeedX * 0.2)  
+                });
+            }
+        }
+
+        function updateDemoUFOs(deltaTimeSeconds) {
+            demoUfos.forEach(ufo => {
+                ufo.x += ufo.speedX * deltaTimeSeconds;
+                ufo.y += ufo.speedY * deltaTimeSeconds;
+
+                if (ufo.x + ufo.width < 0 && ufo.speedX < 0) ufo.x = canvas.width;
+                if (ufo.x > canvas.width && ufo.speedX > 0) ufo.x = -ufo.width;
+                if (ufo.y + ufo.height < 0 && ufo.speedY < 0) ufo.y = canvas.height * 0.6;
+                if (ufo.y > canvas.height * 0.6 && ufo.speedY > 0) ufo.y = -ufo.height;
+            });
+        }
+
 
         function createExplosion(x, y, entityWidth, entityHeight) {
             explosions.push({
@@ -454,6 +462,9 @@
         function updateProjectiles(deltaTimeSeconds) {
             for (let i = projectiles.length - 1; i >= 0; i--) {
                 const p = projectiles[i];
+                if (p.armingTimer > 0) {
+                    p.armingTimer -= deltaTimeSeconds;
+                }
                 p.dy += baseGravity * deltaTimeSeconds;
                 p.x += p.dx * deltaTimeSeconds;
                 p.y += p.dy * deltaTimeSeconds;
@@ -481,16 +492,16 @@
                     inv.x -= currentInvaderMoveSpeed;
                 }
                 if (animateThisFrame) { inv.animationFrame = (inv.animationFrame + 1) % 2; }
-                if (!inv.isFalling && inv.x + inv.width > cannon.x && inv.x < cannon.x + cannon.bodyWidth &&
-                    inv.y + inv.height > cannon.y && inv.y < cannon.y + cannon.bodyHeight) {
-                    triggerGameOver("インベーダーが防衛ラインを突破！");
+                
+                if (!inv.isFalling && inv.x < cannon.x + cannon.bodyWidth * 0.25) { 
+                    triggerGameOver(); 
                     return;
                 }
                 if (inv.x + inv.width < 0) { invaders.splice(i, 1); }
             }
         }
 
-        function updateUFOs(deltaTimeSeconds) {
+        function updateGameUFOs(deltaTimeSeconds) { 
             for (let i = ufos.length - 1; i >= 0; i--) {
                 const ufo = ufos[i];
                 if (!ufo.alive) {
@@ -561,16 +572,19 @@
         }
 
         function checkCollisions() {
-            if (gameOver) return;
+            if (gameState !== 'playing' || gameOver) return; // Ensure collisions only checked during active play
             for (let i = projectiles.length - 1; i >= 0; i--) {
                 const p = projectiles[i];
+                if (p.armingTimer > 0) continue; 
+
                 for (let j = invaders.length - 1; j >= 0; j--) {
                     const inv = invaders[j];
                     if (p.x - p.radius < inv.x + inv.width && p.x + p.radius > inv.x &&
                         p.y - p.radius < inv.y + inv.height && p.y + p.radius > inv.y) {
                         createExplosion(inv.x, inv.y, inv.width, inv.height);
                         invaders.splice(j, 1); projectiles.splice(i, 1);
-                        score += 100; invadersKilled++;
+                        score += 10; 
+                        invadersKilled++;
                         currentBaseInvaderSpeed *= invaderSpeedIncreaseFactor;
                         baseInvaderSpawnInterval = Math.max(minInvaderSpawnInterval, baseInvaderSpawnInterval - invaderSpawnIntervalDecrease);
                         updateGameInfo(); break;
@@ -578,8 +592,10 @@
                 }
             }
             for (let i = projectiles.length - 1; i >= 0; i--) {
-                if (!projectiles[i]) continue;
+                if (!projectiles[i]) continue; 
                 const p = projectiles[i];
+                if (p.armingTimer > 0) continue; 
+
                 for (let j = ufos.length - 1; j >= 0; j--) {
                     const ufo = ufos[j];
                     if (!ufo.alive && ufo.type !== 'circular_dropper' && ufo.type !== 'dropper') continue;
@@ -599,33 +615,41 @@
         function updateGameInfo() {
             scoreDisplay.textContent = score;
             invadersKilledDisplay.textContent = invadersKilled;
+            currentMaxProjectiles = BASE_MAX_PROJECTILES + Math.floor(score / 1000); 
+            maxProjectilesDisplay.textContent = currentMaxProjectiles;
         }
 
-        function triggerGameOver(reason) {
-            if (gameOver) return;
-            gameOver = true; gameRunning = false;
-            messageTextElement.textContent = reason + ` スコア: ${score}`;
-            messageContainer.style.display = 'flex';
+        function triggerGameOver() {
+            if (gameState === 'cannon_exploding' || gameState === 'gameover_message') return; 
+            gameRunning = false; 
+            gameOver = true; 
+            gameState = 'cannon_exploding';
+            cannon.visible = false; 
+            createExplosion(cannon.x, cannon.y, cannon.bodyWidth, cannon.bodyHeight); 
+            cannonExplosionTimer = explosionDuration; // Use the general explosionDuration
         }
 
         function resetGame() {
-            score = 0; invadersKilled = 0; gameOver = false;
+            score = 0; invadersKilled = 0; gameOver = false; gameRunning = true; 
             projectiles.length = 0; invaders.length = 0; ufos.length = 0;
             explosions.length = 0; scorePopups.length = 0;
             currentBaseInvaderSpeed = initialBaseInvaderSpeed;
-            baseInvaderSpawnInterval = 2200; // Reset to new base spawn interval
+            baseInvaderSpawnInterval = 2200; 
             currentInvaderSpawnInterval = baseInvaderSpawnInterval + (Math.random() * invaderSpawnIntervalRandomness - invaderSpawnIntervalRandomness / 2);
             lastInvaderSpawnTime = performance.now();
             nextUfoSpawnCount = ufoSpawnTrigger; 
+            currentMaxProjectiles = BASE_MAX_PROJECTILES; 
             power = 0; charging = false;
             powerGaugeBar.style.width = '0%'; invaderAnimationTimer = 0;
-            initializeImageDependentVariables();
-            updateGameInfo();
+            cannon.visible = true; 
+            updateGameInfo(); 
             cannon.angle = -55 * Math.PI / 180; 
         }
 
         // --- Drawing Functions ---
         function drawCannon() {
+            if (!cannon.visible) return; 
+            ctx.globalCompositeOperation = 'source-over'; 
             if (images.cannonBody && images.cannonBody.complete && !images.cannonBody.failed) {
                 ctx.drawImage(images.cannonBody, cannon.x, cannon.y, cannon.bodyWidth, cannon.bodyHeight);
             } else {
@@ -647,6 +671,7 @@
         }
 
         function drawProjectiles() {
+            ctx.globalCompositeOperation = 'source-over';
             projectiles.forEach(p => {
                 ctx.beginPath(); ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
                 ctx.fillStyle = p.color; ctx.fill();
@@ -654,6 +679,7 @@
         }
 
         function drawInvaders() {
+            ctx.globalCompositeOperation = 'source-over'; 
             invaders.forEach(inv => {
                 const imgToDraw = inv.animationFrame === 0 ? images.invader1 : images.invader2;
                 if (imgToDraw && imgToDraw.complete && !imgToDraw.failed) {
@@ -665,7 +691,8 @@
             });
         }
 
-        function drawUFOs() {
+        function drawGameUFOs() { 
+            ctx.globalCompositeOperation = 'source-over'; 
             ufos.forEach(ufo => {
                 if (images.ufo && images.ufo.complete && !images.ufo.failed) {
                     ctx.drawImage(images.ufo, ufo.x, ufo.y, ufo.width, ufo.height);
@@ -675,8 +702,17 @@
                 }
             });
         }
+        
+        function drawDemoUFOs() {
+            ctx.globalCompositeOperation = 'source-over';
+            if (!images.ufo || images.ufo.failed) return;
+            demoUfos.forEach(ufo => {
+                ctx.drawImage(images.ufo, ufo.x, ufo.y, ufo.width, ufo.height);
+            });
+        }
 
         function drawExplosions() {
+            ctx.globalCompositeOperation = 'source-over'; 
             explosions.forEach(exp => {
                 let imgExp;
                 if (exp.frame === 0) imgExp = images.explosion1;
@@ -694,6 +730,7 @@
         }
 
         function drawScorePopups() {
+            ctx.globalCompositeOperation = 'source-over';
             ctx.fillStyle = '#ffd700';
             ctx.font = 'bold clamp(16px, 2.5vw, 20px) Arial';
             ctx.textAlign = 'center';
@@ -708,6 +745,7 @@
         }
 
         function drawHorizon() {
+            ctx.globalCompositeOperation = 'source-over';
             ctx.beginPath(); ctx.moveTo(0, horizonY);
             ctx.lineTo(canvas.width, horizonY);
             ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 2; ctx.stroke();
@@ -715,55 +753,100 @@
 
         // --- Main Game Loop ---
         function gameLoop(timestamp) {
-            if (!gameRunning && !gameOver) {
-                 if (imagesLoaded === totalImages && allImagesSuccessfullyLoaded) {/* Ready but paused */ }
-                 else { requestAnimationFrame(gameLoop); return; }
-            }
-            if (!gameRunning && gameOver) { return; }
-            if (!gameRunning) { requestAnimationFrame(gameLoop); return; }
-
             if (!lastTimestamp) { lastTimestamp = timestamp; }
             const deltaTime = timestamp - lastTimestamp;
             const deltaTimeSeconds = deltaTime / 1000.0;
             lastTimestamp = timestamp;
 
             ctx.fillStyle = '#000000'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+            ctx.globalCompositeOperation = 'source-over'; 
 
-            updatePowerGauge(deltaTime);
-            updateProjectiles(deltaTimeSeconds);
-            updateInvaders(deltaTimeSeconds); if (gameOver) { drawAllElements(); return; }
-            updateUFOs(deltaTimeSeconds);
-            updateExplosions(deltaTimeSeconds);
-            updateScorePopups(deltaTimeSeconds);
+            if (gameState === 'demo') {
+                updateDemoUFOs(deltaTimeSeconds);
+                drawHorizon();
+                drawDemoUFOs();
+                ctx.fillStyle = '#FFFFFF';
+                ctx.textAlign = 'center';
+                ctx.font = 'bold 48px Arial';
+                ctx.fillText('GROUND INVADERS', canvas.width / 2, canvas.height / 2 - 30);
+                ctx.font = '24px Arial';
+                ctx.fillText('HIT MOUSE BUTTON', canvas.width / 2, canvas.height / 2 + 20);
 
-            // Invader Spawning Logic
-            if (timestamp - lastInvaderSpawnTime > currentInvaderSpawnInterval) {
-                const spawnTypeRoll = Math.random();
-                if (spawnTypeRoll < 0.7 || invaderDisplayHeight <=0 ) { 
-                    spawnInvader(canvas.width, false, 0);
-                } else { 
-                    const randomX = Math.random() * (canvas.width - invaderDisplayWidth);
-                    spawnInvader(randomX, true, -invaderDisplayHeight); 
+
+            } else if (gameState === 'starting') {
+                drawHorizon(); 
+                 if (images.cannonBody && !images.cannonBody.failed) drawCannon(); 
+                ctx.fillStyle = '#FFFFFF';
+                ctx.textAlign = 'center';
+                ctx.font = 'bold 72px Arial';
+                ctx.fillText('START', canvas.width / 2, canvas.height / 2);
+                startMessageTimer -= deltaTime;
+                if (startMessageTimer <= 0) {
+                    gameState = 'playing';
+                    resetGame(); 
                 }
-                lastInvaderSpawnTime = timestamp;
-                currentInvaderSpawnInterval = Math.max(minInvaderSpawnInterval, baseInvaderSpawnInterval + (Math.random() * invaderSpawnIntervalRandomness - invaderSpawnIntervalRandomness / 2));
-            }
+            } else if (gameState === 'playing') {
+                if (!gameRunning) { 
+                    requestAnimationFrame(gameLoop); return;
+                }
+                updatePowerGauge(deltaTime);
+                updateProjectiles(deltaTimeSeconds);
+                updateInvaders(deltaTimeSeconds); 
+                updateGameUFOs(deltaTimeSeconds);
+                updateExplosions(deltaTimeSeconds); 
+                updateScorePopups(deltaTimeSeconds);
 
-            if (invadersKilled >= nextUfoSpawnCount) {
-                spawnUFO(); 
-                nextUfoSpawnCount += ufoSpawnTrigger; 
+                if (timestamp - lastInvaderSpawnTime > currentInvaderSpawnInterval) {
+                    const spawnTypeRoll = Math.random();
+                    if (spawnTypeRoll < 0.7 || invaderDisplayHeight <=0 ) { 
+                        spawnInvader(canvas.width, false, 0);
+                    } else { 
+                        const randomX = Math.random() * (canvas.width - invaderDisplayWidth);
+                        spawnInvader(randomX, true, -invaderDisplayHeight); 
+                    }
+                    lastInvaderSpawnTime = timestamp;
+                    currentInvaderSpawnInterval = Math.max(minInvaderSpawnInterval, baseInvaderSpawnInterval + (Math.random() * invaderSpawnIntervalRandomness - invaderSpawnIntervalRandomness / 2));
+                }
+
+                if (invadersKilled >= nextUfoSpawnCount) {
+                    spawnGameUFO(); 
+                    nextUfoSpawnCount += ufoSpawnTrigger; 
+                }
+                checkCollisions(); 
+                drawAllGameElements();
+
+            } else if (gameState === 'cannon_exploding') {
+                updateExplosions(deltaTimeSeconds); 
+                drawHorizon(); 
+                drawExplosions(); 
+                cannonExplosionTimer -= deltaTime;
+                if (cannonExplosionTimer <= 0) {
+                    gameState = 'gameover_message';
+                    gameOverDisplayTimer = GAME_OVER_MESSAGE_DURATION;
+                }
+            } else if (gameState === 'gameover_message') {
+                drawHorizon();
+                ctx.fillStyle = '#FF0000';
+                ctx.textAlign = 'center';
+                ctx.font = 'bold 96px Arial';
+                ctx.fillText('GAME OVER', canvas.width / 2, canvas.height / 2);
+                
+                gameOverDisplayTimer -= deltaTime;
+                if (gameOverDisplayTimer <= 0) {
+                    gameState = 'demo';
+                    initializeDemoUFOs(); 
+                }
             }
-            checkCollisions(); if (gameOver) { drawAllElements(); return; }
-            drawAllElements();
-            if (gameRunning && !gameOver) { requestAnimationFrame(gameLoop); }
+            
+            requestAnimationFrame(gameLoop);
         }
 
-        function drawAllElements() {
+        function drawAllGameElements() {
             drawHorizon();
             drawProjectiles();
             drawInvaders();
-            drawUFOs();
-            drawCannon();
+            drawGameUFOs();
+            drawCannon(); 
             drawExplosions();
             drawScorePopups();
         }
@@ -776,8 +859,7 @@
             }
             console.log("全ての画像が読み込まれました。ゲームを初期化します。");
             initializeImageDependentVariables(); 
-            resetGame();
-            gameRunning = true; gameOver = false;
+            initializeDemoUFOs(); 
             lastTimestamp = performance.now();
             requestAnimationFrame(gameLoop);
         }
