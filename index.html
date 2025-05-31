@@ -7,7 +7,7 @@
     <style>
         body {
             margin: 0;
-            background-color: #000;
+            background-color: #000000; /* 背景を真っ黒に */
             color: #fff;
             display: flex;
             flex-direction: column;
@@ -15,22 +15,31 @@
             justify-content: center;
             min-height: 100vh;
             font-family: 'Arial', sans-serif;
-            overflow: hidden;
+            overflow: hidden; /* スクロールバーを隠す */
         }
         #gameContainer {
             display: flex;
             flex-direction: column;
             align-items: center;
+            border: 2px solid #333; /* ゲームコンテナに枠線を追加 */
+            border-radius: 10px;
+            padding: 10px;
+            background-color: #050505; /* 少し明るい黒 */
         }
         canvas {
-            border: 1px solid #333;
-            background-color: #0a0a0a;
+            border: 1px solid #222; /* キャンバスの境界を少し暗く */
+            background-color: #000000; /* キャンバスの背景も真っ黒に */
             display: block;
+            max-width: 100%; /* レスポンシブ対応 */
+            max-height: calc(100vh - 120px); /* ビューポートに合わせる */
+            border-radius: 5px;
         }
         #gameInfo {
             margin-top: 10px;
-            font-size: 20px;
+            margin-bottom: 5px;
+            font-size: clamp(16px, 2.5vw, 20px); /* レスポンシブフォントサイズ */
             text-align: center;
+            width: 100%;
         }
         #powerGaugeContainer {
             width: 80%;
@@ -45,41 +54,54 @@
         #powerGaugeBar {
             width: 0%;
             height: 100%;
-            background-color: #0f0;
+            background-color: #00ff00; /* 明るい緑 */
             transition: width 0.05s linear;
+            border-radius: 3px;
         }
         #messageContainer {
             position: absolute;
             top: 50%;
             left: 50%;
             transform: translate(-50%, -50%);
-            background-color: rgba(0, 0, 0, 0.7);
-            padding: 20px;
+            background-color: rgba(20, 20, 20, 0.9); /* 半透明の背景 */
+            padding: 25px 30px;
             border-radius: 10px;
             text-align: center;
             display: none;
             z-index: 100;
+            border: 1px solid #555;
+            box-shadow: 0 0 15px rgba(255, 255, 255, 0.1);
         }
         #messageText {
-            font-size: 24px;
-            margin-bottom: 15px;
+            font-size: clamp(20px, 3vw, 24px);
+            margin-bottom: 20px;
+        }
+        #loadingMessage {
+            font-size: 20px;
+            color: #fff;
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
         }
         #restartButton {
-            padding: 10px 20px;
-            font-size: 18px;
-            background-color: #4CAF50;
+            padding: 12px 25px;
+            font-size: clamp(16px, 2.5vw, 18px);
+            background-color: #4CAF50; /* 緑 */
             color: white;
             border: none;
-            border-radius: 5px;
+            border-radius: 8px;
             cursor: pointer;
+            transition: background-color 0.3s ease;
         }
         #restartButton:hover {
-            background-color: #45a049;
+            background-color: #45a049; /* 少し暗い緑 */
         }
     </style>
 </head>
 <body>
-    <div id="gameContainer">
+    <div id="loadingMessage">読み込み中...</div>
+    <div id="gameContainer" style="display: none;">
         <div id="gameInfo">
             スコア: <span id="score">0</span> | 倒したインベーダー: <span id="invadersKilledCount">0</span>
         </div>
@@ -102,25 +124,76 @@
         const invadersKilledDisplay = document.getElementById('invadersKilledCount');
         const powerGaugeBar = document.getElementById('powerGaugeBar');
         const messageContainer = document.getElementById('messageContainer');
-        const messageText = document.getElementById('messageText');
+        const messageTextElement = document.getElementById('messageText');
         const restartButton = document.getElementById('restartButton');
+        const loadingMessage = document.getElementById('loadingMessage');
+        const gameContainer = document.getElementById('gameContainer');
 
         let canvasWidth = Math.min(window.innerWidth * 0.9, 800);
-        let canvasHeight = Math.min(window.innerHeight * 0.6, 500);
+        let canvasHeight = Math.min(window.innerHeight * 0.7, 500);
         canvas.width = canvasWidth;
         canvas.height = canvasHeight;
+
+        // --- Image Loading ---
+        const imageUrls = {
+            cannonBody: 'https://raw.githubusercontent.com/keigox68000/GroundInvaders/refs/heads/main/h.png',
+            invader1: 'https://raw.githubusercontent.com/keigox68000/GroundInvaders/refs/heads/main/i1.png',
+            invader2: 'https://raw.githubusercontent.com/keigox68000/GroundInvaders/refs/heads/main/i2.png',
+            ufo: 'https://raw.githubusercontent.com/keigox68000/GroundInvaders/refs/heads/main/u.png',
+            explosion1: 'https://raw.githubusercontent.com/keigox68000/GroundInvaders/refs/heads/main/b1.png',
+            explosion2: 'https://raw.githubusercontent.com/keigox68000/GroundInvaders/refs/heads/main/b2.png',
+            explosion3: 'https://raw.githubusercontent.com/keigox68000/GroundInvaders/refs/heads/main/b3.png'
+        };
+        const images = {};
+        let imagesLoaded = 0;
+        const totalImages = Object.keys(imageUrls).length;
+        let allImagesSuccessfullyLoaded = true;
+
+        function loadImage(key, url) {
+            images[key] = new Image();
+            images[key].onload = () => {
+                imagesLoaded++;
+                if (imagesLoaded === totalImages) {
+                    if (allImagesSuccessfullyLoaded) {
+                        loadingMessage.style.display = 'none';
+                        gameContainer.style.display = 'flex';
+                        initializeGameAndStartLoop();
+                    } else {
+                        loadingMessage.textContent = '画像の読み込みに一部失敗しました。リロードしてください。';
+                    }
+                }
+            };
+            images[key].onerror = () => {
+                console.error(`画像の読み込みに失敗しました: ${url}`);
+                images[key].failed = true;
+                imagesLoaded++;
+                allImagesSuccessfullyLoaded = false;
+                if (imagesLoaded === totalImages) {
+                     loadingMessage.textContent = '画像の読み込みに一部失敗しました。リロードしてください。';
+                }
+            };
+            images[key].src = url;
+        }
+
+        for (const key in imageUrls) {
+            loadImage(key, imageUrls[key]);
+        }
 
         // --- Game State Variables ---
         let score = 0;
         let invadersKilled = 0;
         let gameOver = false;
-        let gameRunning = true;
+        let gameRunning = false;
+        let lastTimestamp = 0;
 
         // --- Player (Cannon) ---
         const cannon = {
-            x: 50, y: canvas.height - 52, barrelLength: 45, barrelThickness: 8,
-            baseWidth: 40, baseTopWidth: 20, baseHeight: 15, angle: 0, color: '#fff',
-            minAngle: -Math.PI / 2, maxAngle: 0
+            x: 30, y: 0, bodyWidth: 0, bodyHeight: 0,
+            barrelLength: 35, barrelThickness: 6,
+            barrelPivotX: 0, barrelPivotY: -5,
+            angle: -45 * Math.PI / 180, 
+            minAngle: -80 * Math.PI / 180, 
+            maxAngle: -30 * Math.PI / 180  
         };
 
         // --- Power Gauge ---
@@ -128,171 +201,279 @@
         let maxPower = 100;
         let powerIncrease = true;
         let charging = false;
-        const basePowerChargeSpeed = 2.0;
+        const basePowerChargeSpeed = 120;
 
         // --- Projectiles ---
         const projectiles = [];
-        const projectileRadius = 4;
-        const baseGravity = 0.28;
+        const projectileRadius = 5;
+        const baseGravity = 320; 
+        const MAX_PROJECTILES = 1; 
 
         // --- Invaders ---
         const invaders = [];
-        const invaderWidth = 28; const invaderHeight = 20;
-        const initialBaseInvaderSpeed = 0.8;
+        let invaderDisplayWidth = 0; let invaderDisplayHeight = 0;
+        const initialBaseInvaderSpeed = 75; 
         let currentBaseInvaderSpeed = initialBaseInvaderSpeed;
-        const invaderSpeedIncreaseFactor = 0.025; // 速度上昇量を増加 (0.015 -> 0.025)
-        const baseInvaderFallSpeed = 2.5;
-        let invaderSpawnInterval = 2200;
-        const minInvaderSpawnInterval = 700; // スポーン間隔の下限を少し短く (800 -> 700)
-        const invaderSpawnIntervalDecrease = 30; // スポーン間隔の減少量を増加 (20 -> 30)
-        let lastInvaderSpawn = 0;
+        const invaderSpeedIncreaseFactor = 1.025; 
+        const invaderIndividualSpeedVariation = 0.4; 
+        const baseInvaderFallSpeed = 120; 
+        let baseInvaderSpawnInterval = 2200; // Further decreased base interval for higher frequency
+        let currentInvaderSpawnInterval = baseInvaderSpawnInterval; 
+        const invaderSpawnIntervalRandomness = 600; // Adjusted randomness
+        const minInvaderSpawnInterval = 800; // Further decreased minimum interval
+        const invaderSpawnIntervalDecrease = 80; // Increased decrease amount for faster ramp-up
+        let lastInvaderSpawnTime = 0;
         let invaderAnimationTimer = 0;
-        const invaderAnimationFrameDuration = 350;
+        const invaderAnimationFrameDuration = 350; 
 
         // --- UFOs ---
         const ufos = [];
-        const ufoWidth = 40; const ufoHeight = 20;
-        const ufoSpawnTrigger = 10;
+        let ufoDisplayWidth = 0; let ufoDisplayHeight = 0;
+        const ufoSpawnTrigger = 5; 
         let nextUfoSpawnCount = ufoSpawnTrigger;
         const ufoTypes = ['fly_by', 'dropper', 'circular_dropper'];
-        const ufoDropInvaderChance = 0.7;
-        const baseUfoSpeedX = 1.5;
+        const ufoBaseSpeedX = 80; 
+        let ufoCircularRadius = 120;
+        const ufoCircularSpeed = 1.5;
+        const ufoPossibleScores = [50, 100, 150, 200, 250, 300];
+
+        // --- Score Popups ---
+        const scorePopups = [];
+
+        // --- Explosions ---
+        const explosions = [];
+        let explosionDisplayWidth = 0; let explosionDisplayHeight = 0;
+        const explosionDuration = 300;
+        const explosionFrameCount = 3;
+        const explosionFrameDuration = explosionDuration / explosionFrameCount;
 
         // --- Horizon ---
-        let horizonY = canvas.height - 50;
+        let horizonY = 0;
 
         // --- Mouse Control ---
         let mouseX = canvas.width / 2;
         let mouseY = canvas.height / 2;
 
-        // --- SVG Paths for Enemies ---
-        const invaderSVGPath1 = new Path2D( "M6 18 L10 10 L14 18 L10 16 Z M16 18 L20 10 L24 18 L20 16 Z M8 8 Q10 4 12 8 M18 8 Q20 4 22 8 M2 14 L26 14 L22 20 L6 20 Z");
-        const invaderSVGPath2 = new Path2D( "M6 12 L10 4 L14 12 L10 10 Z M16 12 L20 4 L24 12 L20 10 Z M8 8 Q10 4 12 8 M18 8 Q20 4 22 8 M2 14 L26 14 L22 20 L6 20 Z");
-        const ufoSVGPath = new Path2D("M0,10 Q20,0 40,10 L30,20 Q20,15 10,20 Z M15,10 Q20,5 25,10");
-
         // --- Event Listeners ---
         canvas.addEventListener('mousemove', (e) => {
-            if (!gameRunning) return;
+            if (!gameRunning || gameOver) return;
             const rect = canvas.getBoundingClientRect();
-            mouseX = e.clientX - rect.left; mouseY = e.clientY - rect.top;
-            const dx = mouseX - cannon.x; const dy = mouseY - cannon.y;
-            let angle = Math.atan2(dy, dx);
-            if (angle > cannon.maxAngle) { if (mouseY > cannon.y) angle = cannon.maxAngle; }
-            if (angle < cannon.minAngle) { angle = cannon.minAngle; }
-            if (mouseX < cannon.x && angle > 0) { angle = (mouseY < cannon.y) ? cannon.minAngle : cannon.maxAngle; }
-            cannon.angle = angle;
+            mouseX = e.clientX - rect.left;
+            mouseY = e.clientY - rect.top;
+            const pivotX = cannon.x + cannon.bodyWidth / 2 + cannon.barrelPivotX;
+            const pivotY = cannon.y + cannon.bodyHeight / 2 + cannon.barrelPivotY;
+            
+            if (mouseY >= pivotY) {
+                 mouseY = pivotY - 1; 
+            }
+
+            const dx = mouseX - pivotX;
+            const dy = mouseY - pivotY; 
+            
+            let targetAngle = Math.atan2(dy, dx);
+            cannon.angle = Math.max(cannon.minAngle, Math.min(cannon.maxAngle, targetAngle));
         });
 
         canvas.addEventListener('mousedown', (e) => {
             if (!gameRunning || gameOver) return;
-            if (e.button === 0) { charging = true; power = 0; powerIncrease = true;}
+            if (e.button === 0) {
+                charging = true;
+                power = 0;
+                powerIncrease = true;
+            }
         });
 
         canvas.addEventListener('mouseup', (e) => {
             if (!gameRunning || !charging || gameOver) return;
-            if (e.button === 0) { charging = false; fireProjectile(); powerGaugeBar.style.width = `0%`;}
+            if (e.button === 0) {
+                charging = false;
+                fireProjectile();
+                powerGaugeBar.style.width = `0%`;
+                power = 0;
+            }
         });
 
         restartButton.addEventListener('click', () => {
             messageContainer.style.display = 'none';
             resetGame();
             gameRunning = true;
+            gameOver = false;
             lastTimestamp = performance.now();
             requestAnimationFrame(gameLoop);
         });
 
         window.addEventListener('resize', () => {
             canvasWidth = Math.min(window.innerWidth * 0.9, 800);
-            canvasHeight = Math.min(window.innerHeight * 0.6, 500);
-            canvas.width = canvasWidth; canvas.height = canvasHeight;
-            horizonY = canvas.height - 50; cannon.y = canvas.height - 52;
+            canvasHeight = Math.min(window.innerHeight * 0.7, 500);
+            canvas.width = canvasWidth;
+            canvas.height = canvasHeight;
+            setHorizonAndCannonY();
         });
+
+        function setHorizonAndCannonY() {
+            if (images.cannonBody && images.cannonBody.complete && !images.cannonBody.failed && images.cannonBody.naturalHeight > 0) {
+                cannon.bodyWidth = images.cannonBody.naturalWidth / 2;
+                cannon.bodyHeight = images.cannonBody.naturalHeight / 2;
+            } else {
+                cannon.bodyWidth = 40; cannon.bodyHeight = 20;
+            }
+            cannon.y = canvas.height - cannon.bodyHeight - 5;
+            horizonY = cannon.y + cannon.bodyHeight + 1; 
+        }
+
+        function initializeImageDependentVariables() {
+            if (images.invader1 && images.invader1.complete && !images.invader1.failed && images.invader1.naturalHeight > 0) {
+                invaderDisplayWidth = images.invader1.naturalWidth / 2;
+                invaderDisplayHeight = images.invader1.naturalHeight / 2;
+            } else {
+                invaderDisplayWidth = 32; invaderDisplayHeight = 24;
+            }
+            if (images.ufo && images.ufo.complete && !images.ufo.failed && images.ufo.naturalHeight > 0) {
+                ufoDisplayWidth = images.ufo.naturalWidth / 2;
+                ufoDisplayHeight = images.ufo.naturalHeight / 2;
+            } else {
+                ufoDisplayWidth = 40; ufoDisplayHeight = 20;
+            }
+            if (images.explosion1 && images.explosion1.complete && !images.explosion1.failed && images.explosion1.naturalHeight > 0) {
+                explosionDisplayWidth = images.explosion1.naturalWidth / 2;
+                explosionDisplayHeight = images.explosion1.naturalHeight / 2;
+            } else {
+                explosionDisplayWidth = 30; explosionDisplayHeight = 30;
+            }
+            setHorizonAndCannonY();
+        }
 
         // --- Game Functions ---
         function fireProjectile() {
-            const velocity = (power / maxPower) * 12 + 3.5;
+            if (projectiles.length >= MAX_PROJECTILES) {
+                return;
+            }
+            
+            const maxInitialVelocity = 500; 
+            const minInitialVelocity = 220; 
+            
+            let effectivePowerRatio = power / maxPower;
+            if (power > 0 && power < 15) { 
+                 effectivePowerRatio = Math.max(effectivePowerRatio, 0.15); 
+            } else if (power === 0) { 
+                effectivePowerRatio = 0.05; 
+            }
+            
+            const velocityRange = maxInitialVelocity - minInitialVelocity;
+            const initialVelocity = minInitialVelocity + effectivePowerRatio * velocityRange;
+
+            const pivotX = cannon.x + cannon.bodyWidth / 2 + cannon.barrelPivotX;
+            const pivotY = cannon.y + cannon.bodyHeight / 2 + cannon.barrelPivotY;
+            const barrelTipX = pivotX + Math.cos(cannon.angle) * cannon.barrelLength;
+            const barrelTipY = pivotY + Math.sin(cannon.angle) * cannon.barrelLength;
+
             projectiles.push({
-                x: cannon.x + Math.cos(cannon.angle) * cannon.barrelLength,
-                y: cannon.y + Math.sin(cannon.angle) * cannon.barrelLength,
-                dx: Math.cos(cannon.angle) * velocity,
-                dy: Math.sin(cannon.angle) * velocity,
-                radius: projectileRadius, color: '#ff0'
+                x: barrelTipX, y: barrelTipY,
+                dx: Math.cos(cannon.angle) * initialVelocity,
+                dy: Math.sin(cannon.angle) * initialVelocity,
+                radius: projectileRadius, color: '#ffff00'
             });
-            power = 0;
         }
 
-        function spawnInvader(xPos = canvas.width, isFalling = false, fallStartY = 0) {
+        function spawnInvader(xPos = canvas.width, isFalling = false, fallStartY = 0, ufoDropped = false) {
+            const invaderY = isFalling ? fallStartY : horizonY - invaderDisplayHeight;
+            const individualSpeed = currentBaseInvaderSpeed * (1 + (Math.random() * invaderIndividualSpeedVariation - invaderIndividualSpeedVariation / 2));
+
             invaders.push({
-                x: xPos, y: isFalling ? fallStartY : horizonY - invaderHeight,
-                width: invaderWidth, height: invaderHeight,
-                speed: currentBaseInvaderSpeed,
-                color: '#fff', animationFrame: 0, isFalling: isFalling, targetY: horizonY - invaderHeight
+                x: xPos, y: invaderY,
+                width: invaderDisplayWidth, height: invaderDisplayHeight,
+                speed: individualSpeed, 
+                animationFrame: 0,
+                isFalling: isFalling, targetY: horizonY - invaderDisplayHeight,
+                ufoDropped: ufoDropped
             });
         }
 
         function spawnUFO() {
-            const type = ufoTypes[Math.floor(Math.random() * ufoTypes.length)];
+            const ufoType = ufoTypes[Math.floor(Math.random() * ufoTypes.length)];
+            const startsFromRight = Math.random() < 0.5;
+            const ufoY = Math.random() * (canvas.height * 0.25) + ufoDisplayHeight * 0.5;
+
             let ufo = {
-                x: 0, y: Math.random() * (horizonY / 2) + 50, width: ufoWidth, height: ufoHeight,
-                speedX: baseUfoSpeedX + Math.random() * 0.8,
-                speedY: 0, color: '#f0f', type: type, path: ufoSVGPath,
-                actionTimer: 0, actionComplete: false, dropCount: 0, maxDrops: Math.floor(Math.random() * 3) + 2,
-                circleCenterX: 0, circleCenterY: 0, circleRadius: 0, circleAngle: 0, circleAngleStep: 0.06,
-                circleLoops: 0, maxCircleLoops: 2 + Math.floor(Math.random() * 2)
+                type: ufoType,
+                x: startsFromRight ? canvas.width : -ufoDisplayWidth,
+                y: ufoY,
+                width: ufoDisplayWidth, height: ufoDisplayHeight,
+                speedX: startsFromRight ? -ufoBaseSpeedX : ufoBaseSpeedX,
+                droppedInvaders: 0, maxDrops: 1, alive: true,
+                dropTimer: 0, dropInterval: 1000 + Math.random() * 1000,
             };
-            if (type === 'circular_dropper') {
-                ufo.x = canvas.width / 2 + (Math.random() - 0.5) * (canvas.width / 3);
-                ufo.y = canvas.height / 3 + (Math.random() - 0.5) * (canvas.height / 4);
-                ufo.circleCenterX = ufo.x; ufo.circleCenterY = ufo.y;
-                ufo.circleRadius = 50 + Math.random() * 50; ufo.speedX = 0;
-            } else {
-                 if (Math.random() < 0.5) { ufo.x = -ufo.width; }
-                 else { ufo.x = canvas.width; ufo.speedX = -Math.abs(ufo.speedX); }
+
+            if (ufoType === 'circular_dropper') {
+                ufo.x = Math.random() * (canvas.width - 2 * ufoCircularRadius) + ufoCircularRadius;
+                ufo.y = ufoCircularRadius * 0.75 + Math.random() * (canvas.height * 0.15);
+                ufo.angle = Math.random() * Math.PI * 2;
+                ufo.centerX = ufo.x;
+                ufo.centerY = ufo.y;
+                ufo.maxDrops = 2 + Math.floor(Math.random() * 3);
+                ufo.speedX = 0;
+                ufo.pathDuration = 5000 + Math.random() * 3000;
+                ufo.pathTimer = 0;
             }
             ufos.push(ufo);
         }
 
+        function createExplosion(x, y, entityWidth, entityHeight) {
+            explosions.push({
+                x: x + entityWidth / 2 - explosionDisplayWidth / 2,
+                y: y + entityHeight / 2 - explosionDisplayHeight / 2,
+                width: explosionDisplayWidth, height: explosionDisplayHeight,
+                frame: 0, timer: 0
+            });
+        }
+
+        function createScorePopup(value, x, y) {
+            scorePopups.push({
+                text: `+${value}`,
+                x: x,
+                y: y,
+                timer: 1000,
+                duration: 1000
+            });
+        }
+
         function updatePowerGauge(deltaTime) {
             if (charging) {
-                const currentChargeSpeed = basePowerChargeSpeed;
+                const powerChange = (basePowerChargeSpeed / 1000) * deltaTime;
                 if (powerIncrease) {
-                    power += currentChargeSpeed;
+                    power += powerChange;
                     if (power >= maxPower) { power = maxPower; powerIncrease = false; }
                 } else {
-                    power -= currentChargeSpeed;
+                    power -= powerChange;
                     if (power <= 0) { power = 0; powerIncrease = true; }
                 }
                 powerGaugeBar.style.width = `${(power / maxPower) * 100}%`;
             }
         }
 
-        function updateProjectiles(deltaTime) {
+        function updateProjectiles(deltaTimeSeconds) {
             for (let i = projectiles.length - 1; i >= 0; i--) {
                 const p = projectiles[i];
-                const timeFactor = deltaTime / 16.67;
-                p.dy += baseGravity * timeFactor;
-                p.x += p.dx * timeFactor;
-                p.y += p.dy * timeFactor;
-                if (p.x < -p.radius || p.x > canvas.width + p.radius || p.y > canvas.height + p.radius || p.y < -p.radius * 5) {
+                p.dy += baseGravity * deltaTimeSeconds;
+                p.x += p.dx * deltaTimeSeconds;
+                p.y += p.dy * deltaTimeSeconds;
+                if (p.x < -p.radius || p.x > canvas.width + p.radius || p.y > horizonY + p.radius || p.y < -canvas.height * 0.5) {
                     projectiles.splice(i, 1);
                 }
             }
         }
 
-        function updateInvaders(deltaTime) {
-            invaderAnimationTimer += deltaTime;
+        function updateInvaders(deltaTimeSeconds) {
+            invaderAnimationTimer += deltaTimeSeconds * 1000;
             let animateThisFrame = false;
             if (invaderAnimationTimer >= invaderAnimationFrameDuration) {
                 animateThisFrame = true;
                 invaderAnimationTimer %= invaderAnimationFrameDuration;
             }
-
             for (let i = invaders.length - 1; i >= 0; i--) {
                 const inv = invaders[i];
-                const timeFactor = deltaTime / 16.67;
-                const currentInvaderMoveSpeed = inv.speed * timeFactor;
-                const currentFallSpeed = baseInvaderFallSpeed * timeFactor;
-
+                const currentInvaderMoveSpeed = inv.speed * deltaTimeSeconds;
+                const currentFallSpeed = baseInvaderFallSpeed * deltaTimeSeconds;
                 if (inv.isFalling) {
                     inv.y += currentFallSpeed;
                     if (inv.y >= inv.targetY) { inv.y = inv.targetY; inv.isFalling = false; }
@@ -300,146 +481,306 @@
                     inv.x -= currentInvaderMoveSpeed;
                 }
                 if (animateThisFrame) { inv.animationFrame = (inv.animationFrame + 1) % 2; }
-                if (!inv.isFalling && inv.x + inv.width < cannon.x - 20) { triggerGameOver("インベーダーが防衛ラインを突破！"); return; }
-                if (!inv.isFalling && inv.x + inv.width < 0) { invaders.splice(i, 1); }
+                if (!inv.isFalling && inv.x + inv.width > cannon.x && inv.x < cannon.x + cannon.bodyWidth &&
+                    inv.y + inv.height > cannon.y && inv.y < cannon.y + cannon.bodyHeight) {
+                    triggerGameOver("インベーダーが防衛ラインを突破！");
+                    return;
+                }
+                if (inv.x + inv.width < 0) { invaders.splice(i, 1); }
             }
         }
 
-        function updateUFOs(deltaTime) {
+        function updateUFOs(deltaTimeSeconds) {
             for (let i = ufos.length - 1; i >= 0; i--) {
                 const ufo = ufos[i];
-                const timeFactor = deltaTime / 16.67;
-                ufo.actionTimer += deltaTime;
+                if (!ufo.alive) {
+                    if (ufo.x + ufo.width < 0 || ufo.x > canvas.width) { ufos.splice(i, 1); }
+                    else { ufo.x += ufo.speedX * deltaTimeSeconds; }
+                    continue;
+                }
+                if (ufo.type === 'fly_by') {
+                    ufo.x += ufo.speedX * deltaTimeSeconds;
+                    if ((ufo.speedX < 0 && ufo.x + ufo.width < 0) || (ufo.speedX > 0 && ufo.x > canvas.width)) {
+                        ufos.splice(i, 1);
+                    }
+                } else if (ufo.type === 'dropper') {
+                    ufo.x += ufo.speedX * deltaTimeSeconds;
+                    const dropZoneStart = canvas.width * 0.3; const dropZoneEnd = canvas.width * 0.7;
+                    if (ufo.droppedInvaders < ufo.maxDrops && ufo.x > dropZoneStart && ufo.x < dropZoneEnd) {
+                        spawnInvader(ufo.x + ufo.width / 2 - invaderDisplayWidth / 2, true, ufo.y + ufo.height, true);
+                        ufo.droppedInvaders++; ufo.alive = false;
+                    }
+                    if (!ufo.alive && ((ufo.speedX < 0 && ufo.x + ufo.width < 0) || (ufo.speedX > 0 && ufo.x > canvas.width))) {
+                        ufos.splice(i,1);
+                    }
+                } else if (ufo.type === 'circular_dropper') {
+                    ufo.pathTimer += deltaTimeSeconds * 1000; ufo.dropTimer += deltaTimeSeconds * 1000;
+                    if (ufo.pathTimer < ufo.pathDuration) {
+                        ufo.angle += ufoCircularSpeed * deltaTimeSeconds;
+                        ufo.x = ufo.centerX + Math.cos(ufo.angle) * ufoCircularRadius;
+                        ufo.y = ufo.centerY + Math.sin(ufo.angle) * ufoCircularRadius / 1.5;
+                        if (ufo.droppedInvaders < ufo.maxDrops && ufo.dropTimer >= ufo.dropInterval) {
+                            spawnInvader(ufo.x + ufo.width / 2 - invaderDisplayWidth / 2, true, ufo.y + ufo.height, true);
+                            ufo.droppedInvaders++; ufo.dropTimer = 0;
+                            ufo.dropInterval = 800 + Math.random() * 800;
+                        }
+                    } else {
+                        ufo.alive = false;
+                        ufo.speedX = (ufo.x < canvas.width / 2) ? -ufoBaseSpeedX * 1.5 : ufoBaseSpeedX * 1.5;
+                    }
+                    if (!ufo.alive && ((ufo.speedX < 0 && ufo.x + ufo.width < 0) || (ufo.speedX > 0 && ufo.x > canvas.width))) {
+                        ufos.splice(i,1);
+                    } else if (!ufo.alive) {
+                         ufo.x += ufo.speedX * deltaTimeSeconds;
+                    }
+                }
+            }
+        }
 
-                const currentUfoSpeedX = ufo.speedX * timeFactor;
+        function updateExplosions(deltaTimeSeconds) {
+            for (let i = explosions.length - 1; i >= 0; i--) {
+                const exp = explosions[i];
+                exp.timer += deltaTimeSeconds * 1000;
+                if (exp.timer >= explosionDuration) {
+                    explosions.splice(i, 1);
+                } else {
+                    exp.frame = Math.floor(exp.timer / explosionFrameDuration);
+                    if (exp.frame >= explosionFrameCount) exp.frame = explosionFrameCount -1;
+                }
+            }
+        }
 
-                switch (ufo.type) {
-                    case 'fly_by':
-                        ufo.x += currentUfoSpeedX;
-                        if ((ufo.speedX > 0 && ufo.x > canvas.width + ufo.width) || (ufo.speedX < 0 && ufo.x + ufo.width < -ufo.width)) {
-                            ufos.splice(i, 1);
-                        }
-                        break;
-                    case 'dropper':
-                        ufo.x += currentUfoSpeedX;
-                        if (!ufo.actionComplete && Math.abs(ufo.x - canvas.width / 2) < ufo.width && ufo.actionTimer > 1000 ) {
-                             if (Math.random() < ufoDropInvaderChance) {
-                                spawnInvader(ufo.x + ufo.width / 2 - invaderWidth / 2, true, ufo.y + ufo.height);
-                            }
-                            ufo.actionComplete = true;
-                        }
-                        if ((ufo.speedX > 0 && ufo.x > canvas.width + ufo.width) || (ufo.speedX < 0 && ufo.x + ufo.width < -ufo.width)) {
-                            ufos.splice(i, 1);
-                        }
-                        break;
-                    case 'circular_dropper':
-                        if (!ufo.actionComplete) {
-                            const angleStep = ufo.circleAngleStep * timeFactor;
-                            ufo.x = ufo.circleCenterX + Math.cos(ufo.circleAngle) * ufo.circleRadius;
-                            ufo.y = ufo.circleCenterY + Math.sin(ufo.circleAngle) * ufo.circleRadius;
-                            ufo.circleAngle += angleStep;
-                            if (ufo.circleAngle > Math.PI * 2) { ufo.circleAngle -= Math.PI * 2; ufo.circleLoops++; }
-
-                            if (ufo.dropCount < ufo.maxDrops && ufo.actionTimer > 600 && (ufo.actionTimer % 1200) < 30 ) {
-                                spawnInvader(ufo.x + ufo.width / 2 - invaderWidth / 2, true, ufo.y + ufo.height);
-                                ufo.dropCount++;
-                            }
-                            if (ufo.circleLoops >= ufo.maxCircleLoops && ufo.dropCount >= ufo.maxDrops) {
-                                ufo.actionComplete = true;
-                                ufo.speedX = (ufo.x < canvas.width / 2) ? -baseUfoSpeedX : baseUfoSpeedX;
-                            }
-                        } else {
-                            ufo.x += ufo.speedX * timeFactor;
-                            if (ufo.x > canvas.width + ufo.width || ufo.x + ufo.width < 0) { ufos.splice(i, 1); }
-                        }
-                        break;
+        function updateScorePopups(deltaTimeSeconds) {
+            for (let i = scorePopups.length - 1; i >= 0; i--) {
+                const popup = scorePopups[i];
+                popup.timer -= deltaTimeSeconds * 1000;
+                if (popup.timer <= 0) {
+                    scorePopups.splice(i, 1);
                 }
             }
         }
 
         function checkCollisions() {
+            if (gameOver) return;
             for (let i = projectiles.length - 1; i >= 0; i--) {
                 const p = projectiles[i];
                 for (let j = invaders.length - 1; j >= 0; j--) {
                     const inv = invaders[j];
-                    if (!inv.isFalling &&
-                        p.x + p.radius > inv.x && p.x - p.radius < inv.x + inv.width &&
-                        p.y + p.radius > inv.y && p.y - p.radius < inv.y + inv.height) {
-                        projectiles.splice(i, 1); invaders.splice(j, 1); score += 10;
-                        invadersKilled++;
-                        currentBaseInvaderSpeed += invaderSpeedIncreaseFactor;
-                        invaderSpawnInterval = Math.max(minInvaderSpawnInterval, invaderSpawnInterval - invaderSpawnIntervalDecrease);
-                        break;
+                    if (p.x - p.radius < inv.x + inv.width && p.x + p.radius > inv.x &&
+                        p.y - p.radius < inv.y + inv.height && p.y + p.radius > inv.y) {
+                        createExplosion(inv.x, inv.y, inv.width, inv.height);
+                        invaders.splice(j, 1); projectiles.splice(i, 1);
+                        score += 100; invadersKilled++;
+                        currentBaseInvaderSpeed *= invaderSpeedIncreaseFactor;
+                        baseInvaderSpawnInterval = Math.max(minInvaderSpawnInterval, baseInvaderSpawnInterval - invaderSpawnIntervalDecrease);
+                        updateGameInfo(); break;
                     }
                 }
             }
             for (let i = projectiles.length - 1; i >= 0; i--) {
-                if (!projectiles[i]) continue; const p = projectiles[i];
+                if (!projectiles[i]) continue;
+                const p = projectiles[i];
                 for (let j = ufos.length - 1; j >= 0; j--) {
                     const ufo = ufos[j];
-                     if (p.x + p.radius > ufo.x && p.x - p.radius < ufo.x + ufo.width && p.y + p.radius > ufo.y && p.y - p.radius < ufo.y + ufo.height) {
-                        projectiles.splice(i, 1); ufos.splice(j, 1); score += 50; break;
+                    if (!ufo.alive && ufo.type !== 'circular_dropper' && ufo.type !== 'dropper') continue;
+                    if (p.x - p.radius < ufo.x + ufo.width && p.x + p.radius > ufo.x &&
+                        p.y - p.radius < ufo.y + ufo.height && p.y + p.radius > ufo.y) {
+                        const ufoScoreValue = ufoPossibleScores[Math.floor(Math.random() * ufoPossibleScores.length)];
+                        score += ufoScoreValue;
+                        createExplosion(ufo.x, ufo.y, ufo.width, ufo.height);
+                        createScorePopup(ufoScoreValue, ufo.x + ufo.width / 2, ufo.y + ufo.height / 2);
+                        ufos.splice(j, 1); projectiles.splice(i, 1);
+                        updateGameInfo(); break;
                     }
                 }
             }
         }
 
-        function updateGameInfo() { scoreDisplay.textContent = score; invadersKilledDisplay.textContent = invadersKilled; }
-        function triggerGameOver(reason) { gameOver = true; gameRunning = false; messageText.textContent = reason + ` 最終スコア: ${score}`; messageContainer.style.display = 'flex';}
+        function updateGameInfo() {
+            scoreDisplay.textContent = score;
+            invadersKilledDisplay.textContent = invadersKilled;
+        }
+
+        function triggerGameOver(reason) {
+            if (gameOver) return;
+            gameOver = true; gameRunning = false;
+            messageTextElement.textContent = reason + ` スコア: ${score}`;
+            messageContainer.style.display = 'flex';
+        }
+
         function resetGame() {
             score = 0; invadersKilled = 0; gameOver = false;
             projectiles.length = 0; invaders.length = 0; ufos.length = 0;
+            explosions.length = 0; scorePopups.length = 0;
             currentBaseInvaderSpeed = initialBaseInvaderSpeed;
-            invaderSpawnInterval = 2200;
-            lastInvaderSpawn = performance.now();
-            nextUfoSpawnCount = ufoSpawnTrigger; power = 0; charging = false;
-            powerGaugeBar.style.width = '0%'; updateGameInfo(); invaderAnimationTimer = 0;
+            baseInvaderSpawnInterval = 2200; // Reset to new base spawn interval
+            currentInvaderSpawnInterval = baseInvaderSpawnInterval + (Math.random() * invaderSpawnIntervalRandomness - invaderSpawnIntervalRandomness / 2);
+            lastInvaderSpawnTime = performance.now();
+            nextUfoSpawnCount = ufoSpawnTrigger; 
+            power = 0; charging = false;
+            powerGaugeBar.style.width = '0%'; invaderAnimationTimer = 0;
+            initializeImageDependentVariables();
+            updateGameInfo();
+            cannon.angle = -55 * Math.PI / 180; 
         }
 
-        function drawCannon() { ctx.save(); ctx.translate(cannon.x, cannon.y); ctx.fillStyle = cannon.color; ctx.strokeStyle = cannon.color; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(-cannon.baseTopWidth / 2 - 5, cannon.baseHeight); ctx.lineTo(-cannon.baseTopWidth / 2, 0); ctx.lineTo(cannon.baseTopWidth / 2, 0); ctx.lineTo(cannon.baseTopWidth / 2 + 5, cannon.baseHeight); ctx.closePath(); ctx.fill(); ctx.rotate(cannon.angle); ctx.beginPath(); ctx.moveTo(0, -cannon.barrelThickness / 2); ctx.lineTo(cannon.barrelLength, -cannon.barrelThickness / 4); ctx.lineTo(cannon.barrelLength, cannon.barrelThickness / 4); ctx.lineTo(0, cannon.barrelThickness / 2); ctx.closePath(); ctx.fill(); ctx.restore(); }
-        function drawProjectiles() { projectiles.forEach(p => { ctx.beginPath(); ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2); ctx.fillStyle = p.color; ctx.fill(); });}
-        function drawInvaders() { invaders.forEach(inv => { ctx.save(); ctx.translate(inv.x, inv.y); ctx.fillStyle = inv.color; ctx.strokeStyle = inv.color; ctx.lineWidth = 1.5; const currentPath = inv.animationFrame === 0 ? invaderSVGPath1 : invaderSVGPath2; ctx.fill(currentPath); ctx.stroke(currentPath); ctx.restore(); }); }
-        function drawUFOs() { ufos.forEach(ufo => { ctx.save(); ctx.translate(ufo.x, ufo.y); ctx.fillStyle = ufo.color; ctx.fill(ufo.path); ctx.strokeStyle = '#fff'; ctx.lineWidth = 1; ctx.stroke(ufo.path); ctx.restore(); });}
-        function drawHorizon() { ctx.beginPath(); ctx.moveTo(0, horizonY); ctx.lineTo(canvas.width, horizonY); ctx.strokeStyle = '#ccc'; ctx.lineWidth = 2; ctx.stroke();}
-
-        let lastTimestamp = 0;
-        function gameLoop(timestamp) {
-            if (!gameRunning) return;
-
-            if (!lastTimestamp) {
-                lastTimestamp = timestamp;
+        // --- Drawing Functions ---
+        function drawCannon() {
+            if (images.cannonBody && images.cannonBody.complete && !images.cannonBody.failed) {
+                ctx.drawImage(images.cannonBody, cannon.x, cannon.y, cannon.bodyWidth, cannon.bodyHeight);
+            } else {
+                ctx.fillStyle = '#cccccc';
+                ctx.fillRect(cannon.x, cannon.y, cannon.bodyWidth, cannon.bodyHeight);
             }
+            ctx.save();
+            const pivotX = cannon.x + cannon.bodyWidth / 2 + cannon.barrelPivotX;
+            const pivotY = cannon.y + cannon.bodyHeight / 2 + cannon.barrelPivotY;
+            ctx.translate(pivotX, pivotY); ctx.rotate(cannon.angle);
+            ctx.fillStyle = '#ffffff'; ctx.beginPath();
+            ctx.moveTo(0, -cannon.barrelThickness / 2);
+            ctx.lineTo(cannon.barrelLength - 5, -cannon.barrelThickness / 2 + 1);
+            ctx.lineTo(cannon.barrelLength, -cannon.barrelThickness / 4);
+            ctx.lineTo(cannon.barrelLength, cannon.barrelThickness / 4);
+            ctx.lineTo(cannon.barrelLength - 5, cannon.barrelThickness / 2 - 1);
+            ctx.lineTo(0, cannon.barrelThickness / 2);
+            ctx.closePath(); ctx.fill(); ctx.restore();
+        }
+
+        function drawProjectiles() {
+            projectiles.forEach(p => {
+                ctx.beginPath(); ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
+                ctx.fillStyle = p.color; ctx.fill();
+            });
+        }
+
+        function drawInvaders() {
+            invaders.forEach(inv => {
+                const imgToDraw = inv.animationFrame === 0 ? images.invader1 : images.invader2;
+                if (imgToDraw && imgToDraw.complete && !imgToDraw.failed) {
+                    ctx.drawImage(imgToDraw, inv.x, inv.y, inv.width, inv.height);
+                } else {
+                    ctx.fillStyle = inv.animationFrame === 0 ? '#00ff00' : '#00dd00';
+                    ctx.fillRect(inv.x, inv.y, inv.width, inv.height);
+                }
+            });
+        }
+
+        function drawUFOs() {
+            ufos.forEach(ufo => {
+                if (images.ufo && images.ufo.complete && !images.ufo.failed) {
+                    ctx.drawImage(images.ufo, ufo.x, ufo.y, ufo.width, ufo.height);
+                } else {
+                    ctx.fillStyle = '#ff00ff';
+                    ctx.fillRect(ufo.x, ufo.y, ufo.width, ufo.height);
+                }
+            });
+        }
+
+        function drawExplosions() {
+            explosions.forEach(exp => {
+                let imgExp;
+                if (exp.frame === 0) imgExp = images.explosion1;
+                else if (exp.frame === 1) imgExp = images.explosion2;
+                else imgExp = images.explosion3;
+                if (imgExp && imgExp.complete && !imgExp.failed) {
+                    ctx.drawImage(imgExp, exp.x, exp.y, exp.width, exp.height);
+                } else {
+                    ctx.fillStyle = `rgba(255, ${150 - exp.frame * 50}, 0, ${1 - exp.timer / explosionDuration})`;
+                    ctx.beginPath();
+                    ctx.arc(exp.x + exp.width/2, exp.y + exp.height/2, (exp.width/2) * (exp.timer / explosionDuration + 0.5) , 0, Math.PI * 2);
+                    ctx.fill();
+                }
+            });
+        }
+
+        function drawScorePopups() {
+            ctx.fillStyle = '#ffd700';
+            ctx.font = 'bold clamp(16px, 2.5vw, 20px) Arial';
+            ctx.textAlign = 'center';
+            scorePopups.forEach(popup => {
+                const alpha = Math.max(0, popup.timer / popup.duration);
+                const yOffset = (popup.duration - popup.timer) / popup.duration * 30;
+                ctx.globalAlpha = alpha;
+                ctx.fillText(popup.text, popup.x, popup.y - yOffset);
+                ctx.globalAlpha = 1.0;
+            });
+            ctx.textAlign = 'left';
+        }
+
+        function drawHorizon() {
+            ctx.beginPath(); ctx.moveTo(0, horizonY);
+            ctx.lineTo(canvas.width, horizonY);
+            ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 2; ctx.stroke();
+        }
+
+        // --- Main Game Loop ---
+        function gameLoop(timestamp) {
+            if (!gameRunning && !gameOver) {
+                 if (imagesLoaded === totalImages && allImagesSuccessfullyLoaded) {/* Ready but paused */ }
+                 else { requestAnimationFrame(gameLoop); return; }
+            }
+            if (!gameRunning && gameOver) { return; }
+            if (!gameRunning) { requestAnimationFrame(gameLoop); return; }
+
+            if (!lastTimestamp) { lastTimestamp = timestamp; }
             const deltaTime = timestamp - lastTimestamp;
+            const deltaTimeSeconds = deltaTime / 1000.0;
             lastTimestamp = timestamp;
 
-            if (gameOver) { return; }
-            ctx.fillStyle = '#0a0a0a'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+            ctx.fillStyle = '#000000'; ctx.fillRect(0, 0, canvas.width, canvas.height);
 
             updatePowerGauge(deltaTime);
-            updateProjectiles(deltaTime);
-            updateInvaders(deltaTime);
-            if (gameOver) return;
-            updateUFOs(deltaTime);
+            updateProjectiles(deltaTimeSeconds);
+            updateInvaders(deltaTimeSeconds); if (gameOver) { drawAllElements(); return; }
+            updateUFOs(deltaTimeSeconds);
+            updateExplosions(deltaTimeSeconds);
+            updateScorePopups(deltaTimeSeconds);
 
-            if ( (timestamp - lastInvaderSpawn) > invaderSpawnInterval ) {
-                spawnInvader(canvas.width, false, 0);
-                lastInvaderSpawn = timestamp;
+            // Invader Spawning Logic
+            if (timestamp - lastInvaderSpawnTime > currentInvaderSpawnInterval) {
+                const spawnTypeRoll = Math.random();
+                if (spawnTypeRoll < 0.7 || invaderDisplayHeight <=0 ) { 
+                    spawnInvader(canvas.width, false, 0);
+                } else { 
+                    const randomX = Math.random() * (canvas.width - invaderDisplayWidth);
+                    spawnInvader(randomX, true, -invaderDisplayHeight); 
+                }
+                lastInvaderSpawnTime = timestamp;
+                currentInvaderSpawnInterval = Math.max(minInvaderSpawnInterval, baseInvaderSpawnInterval + (Math.random() * invaderSpawnIntervalRandomness - invaderSpawnIntervalRandomness / 2));
             }
+
             if (invadersKilled >= nextUfoSpawnCount) {
-                spawnUFO();
-                nextUfoSpawnCount += ufoSpawnTrigger;
+                spawnUFO(); 
+                nextUfoSpawnCount += ufoSpawnTrigger; 
             }
-            checkCollisions();
-
-            drawHorizon(); drawCannon(); drawProjectiles(); drawInvaders(); drawUFOs(); updateGameInfo();
-            requestAnimationFrame(gameLoop);
+            checkCollisions(); if (gameOver) { drawAllElements(); return; }
+            drawAllElements();
+            if (gameRunning && !gameOver) { requestAnimationFrame(gameLoop); }
         }
 
-        // --- Initialize and Start Game ---
-        resetGame();
-        lastTimestamp = performance.now();
-        requestAnimationFrame(gameLoop);
+        function drawAllElements() {
+            drawHorizon();
+            drawProjectiles();
+            drawInvaders();
+            drawUFOs();
+            drawCannon();
+            drawExplosions();
+            drawScorePopups();
+        }
 
+        function initializeGameAndStartLoop() {
+            if (!allImagesSuccessfullyLoaded) {
+                console.error("一部の画像の読み込みに失敗したため、ゲームを開始できません。");
+                loadingMessage.textContent = "画像の読み込みエラー。リロードしてください。";
+                loadingMessage.style.display = 'block'; gameContainer.style.display = 'none'; return;
+            }
+            console.log("全ての画像が読み込まれました。ゲームを初期化します。");
+            initializeImageDependentVariables(); 
+            resetGame();
+            gameRunning = true; gameOver = false;
+            lastTimestamp = performance.now();
+            requestAnimationFrame(gameLoop);
+        }
     </script>
 </body>
 </html>
